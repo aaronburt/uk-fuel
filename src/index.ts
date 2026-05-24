@@ -1,8 +1,13 @@
 import { Hono } from "hono";
+import { secureHeaders } from "hono/secure-headers";
+import { cors } from "hono/cors";
 import { Env } from "./types";
 import { fetchAndCacheFuelPrices } from "./cron";
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use("*", secureHeaders());
+app.use("*", cors({ origin: "*" }));
 
 app.get("/", async (c) => {
   try {
@@ -15,24 +20,29 @@ app.get("/", async (c) => {
     return new Response(cachedData, {
       headers: { "Content-Type": "application/json" }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    console.error("GET / failed:", error instanceof Error ? error.message : String(error));
     return c.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "An unexpected error occurred",
+        error: "Internal Server Error",
       },
       500
     );
   }
 });
 
+app.notFound((c) => {
+  return c.json({ success: false, error: "Not Found" }, 404);
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    try {
-      await fetchAndCacheFuelPrices(env);
-    } catch (error: any) {
-      console.error(`Scheduled execution failed: ${error?.message || error}`);
-    }
+    ctx.waitUntil(
+      fetchAndCacheFuelPrices(env).catch((error: unknown) => {
+        console.error(`Scheduled execution failed: ${error instanceof Error ? error.message : String(error)}`);
+      })
+    );
   },
 };

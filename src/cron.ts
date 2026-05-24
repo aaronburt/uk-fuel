@@ -1,4 +1,7 @@
-import { Env } from "./types";
+import { Env, TokenResponse, FuelPriceResponse } from "./types";
+
+const MAX_BATCHES = 500;
+const USER_AGENT = "uk-fuel-worker/1.0";
 
 export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
   if (!env.CLIENT_ID || !env.CLIENT_SECRET) {
@@ -17,12 +20,13 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": USER_AGENT,
       },
       body: params.toString(),
     });
-  } catch (error: any) {
-    throw new Error(`Token request network failure: ${error?.message || error}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Token request network failure: ${message}`);
   }
 
   if (!tokenResponse.ok) {
@@ -35,11 +39,12 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
     throw new Error(`Token request failed with status ${tokenResponse.status}: ${errorBody}`);
   }
 
-  let tokenData: any;
+  let tokenData: TokenResponse;
   try {
-    tokenData = await tokenResponse.json();
-  } catch (error: any) {
-    throw new Error(`Failed to parse token response JSON: ${error?.message || error}`);
+    tokenData = await tokenResponse.json<TokenResponse>();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse token response JSON: ${message}`);
   }
 
   const accessToken = tokenData?.data?.access_token || tokenData?.access_token;
@@ -48,9 +53,9 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
   }
 
   let batchNumber = 1;
-  const allBatches: any[] = [];
+  const allBatches: FuelPriceResponse[] = [];
 
-  while (true) {
+  while (batchNumber <= MAX_BATCHES) {
     const pricesUrl = `https://www.fuel-finder.service.gov.uk/api/v1/pfs/fuel-prices?batch-number=${batchNumber}`;
     let pricesResponse: Response;
     try {
@@ -59,11 +64,12 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Accept": "application/json",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent": USER_AGENT,
         },
       });
-    } catch (error: any) {
-      throw new Error(`Fuel prices request network failure on batch ${batchNumber}: ${error?.message || error}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Fuel prices request network failure on batch ${batchNumber}: ${message}`);
     }
 
     if (!pricesResponse.ok) {
@@ -79,16 +85,20 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
       throw new Error(`Fuel prices request failed on batch ${batchNumber} with status ${pricesResponse.status}: ${errorBody}`);
     }
 
-    let pricesData: any;
+    let pricesData: FuelPriceResponse;
     try {
-      pricesData = await pricesResponse.json();
-    } catch (error: any) {
-      throw new Error(`Failed to parse fuel prices JSON on batch ${batchNumber}: ${error?.message || error}`);
+      pricesData = await pricesResponse.json<FuelPriceResponse>();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to parse fuel prices JSON on batch ${batchNumber}: ${message}`);
     }
 
     allBatches.push(pricesData);
 
-    const stations = pricesData?.data?.stations || pricesData?.stations;
+    const stations = pricesData?.data && !Array.isArray(pricesData.data)
+      ? pricesData.data.stations
+      : pricesData?.stations;
+
     if (Array.isArray(stations) && stations.length === 0) {
       break;
     }
@@ -97,13 +107,18 @@ export async function fetchAndCacheFuelPrices(env: Env): Promise<void> {
     if (Array.isArray(dataPayload) && dataPayload.length === 0) {
       break;
     }
-    
+
     batchNumber++;
+  }
+
+  if (batchNumber > MAX_BATCHES) {
+    console.warn(`Reached MAX_BATCHES limit (${MAX_BATCHES}). Data may be incomplete.`);
   }
 
   try {
     await env.FUEL_CACHE.put("latest_prices", JSON.stringify(allBatches));
-  } catch (error: any) {
-    throw new Error(`Failed to save prices to KV: ${error?.message || error}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to save prices to KV: ${message}`);
   }
 }
