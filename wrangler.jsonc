@@ -1,0 +1,24 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ras",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-23",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"kv_namespaces": [
+		{
+			"binding": "FUEL_CACHE",
+			"id": "f68e086b206d491ca46d779135258786"
+		}
+	],
+	"triggers": {
+		"crons": [
+			"0 */6 * * *"
+		]
+	}
+}
