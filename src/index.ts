@@ -23,7 +23,10 @@ app.get("/", async (c) => {
     }
 
     return new Response(cachedData, {
-      headers: { "Content-Type": "application/json" }
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=900"
+      }
     });
   } catch (error: unknown) {
     console.error("GET / failed:", error instanceof Error ? error.message : String(error));
