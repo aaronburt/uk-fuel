@@ -14,20 +14,8 @@ app.get("/", async (c) => {
     let cachedData = await c.env.FUEL_CACHE.get("latest_prices");
 
     if (!cachedData) {
-      const lock = await c.env.FUEL_CACHE.get("fetch_lock");
-
-      if (lock) {
-        await new Promise((r) => setTimeout(r, 3000));
-        cachedData = await c.env.FUEL_CACHE.get("latest_prices");
-      } else {
-        await c.env.FUEL_CACHE.put("fetch_lock", "1", { expirationTtl: 120 });
-        try {
-          await fetchAndCacheFuelPrices(c.env);
-        } finally {
-          await c.env.FUEL_CACHE.delete("fetch_lock");
-        }
-        cachedData = await c.env.FUEL_CACHE.get("latest_prices");
-      }
+      await fetchAndCacheFuelPrices(c.env);
+      cachedData = await c.env.FUEL_CACHE.get("latest_prices");
     }
 
     if (!cachedData) {
