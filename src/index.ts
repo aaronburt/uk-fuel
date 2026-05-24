@@ -11,10 +11,27 @@ app.use("*", cors({ origin: "*" }));
 
 app.get("/", async (c) => {
   try {
-    const cachedData = await c.env.FUEL_CACHE.get("latest_prices");
+    let cachedData = await c.env.FUEL_CACHE.get("latest_prices");
 
     if (!cachedData) {
-      return c.json({ error: "No cached data available yet. Please wait for the cronjob." }, 404);
+      const lock = await c.env.FUEL_CACHE.get("fetch_lock");
+
+      if (lock) {
+        await new Promise((r) => setTimeout(r, 3000));
+        cachedData = await c.env.FUEL_CACHE.get("latest_prices");
+      } else {
+        await c.env.FUEL_CACHE.put("fetch_lock", "1", { expirationTtl: 120 });
+        try {
+          await fetchAndCacheFuelPrices(c.env);
+        } finally {
+          await c.env.FUEL_CACHE.delete("fetch_lock");
+        }
+        cachedData = await c.env.FUEL_CACHE.get("latest_prices");
+      }
+    }
+
+    if (!cachedData) {
+      return c.json({ success: false, error: "Failed to fetch fuel prices" }, 502);
     }
 
     return new Response(cachedData, {
